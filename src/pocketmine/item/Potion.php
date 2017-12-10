@@ -25,16 +25,20 @@ namespace pocketmine\item;
 
 use pocketmine\entity\Living;
 
-class Potion extends Item{
+class Potion extends Item implements Consumable{
 	public function __construct(int $meta = 0){
 		parent::__construct(self::POTION, $meta, "Potion");
 	}
 
-	public function canBeConsumed() : bool{
-		return true;
+	public function onConsume(Living $consumer){
+
 	}
 
-	public function onConsume(Living $consumer){
-		// TODO: Implement potions
+	public function getAdditionalEffects() : array{
+		return []; //TODO
+	}
+
+	public function getResidue(){
+		return Item::get(Item::GLASS_BOTTLE);
 	}
 }
