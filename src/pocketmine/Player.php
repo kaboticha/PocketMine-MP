@@ -2483,9 +2483,11 @@ class Player extends Human implements CommandSender, ChunkLoader, IPlayer{
 									return true;
 								}
 
-								$slot->pop();
-								$this->inventory->setItemInHand($slot);
-								$this->inventory->addItem($slot->getResidue());
+								if($this->isSurvival()){
+									$slot->pop();
+									$this->inventory->setItemInHand($slot);
+									$this->inventory->addItem($slot->getResidue());
+								}
 
 								return true;
 							}
