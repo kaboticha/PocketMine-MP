@@ -30,6 +30,10 @@ class Potion extends Item implements Consumable{
 		parent::__construct(self::POTION, $meta, "Potion");
 	}
 
+	public function getMaxStackSize() : int{
+		return 1;
+	}
+
 	public function onConsume(Living $consumer){
 
 	}
