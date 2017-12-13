@@ -21,19 +21,20 @@
 
 declare(strict_types=1);
 
-namespace pocketmine\item;
+namespace pocketmine\network\mcpe\protocol\types;
 
+class CommandData{
+	/** @var string */
+	public $commandName;
+	/** @var string */
+	public $commandDescription;
+	/** @var int */
+	public $flags;
+	/** @var int */
+	public $permission;
+	/** @var CommandEnum|null */
+	public $aliases;
+	/** @var CommandParameter[][] */
+	public $overloads = [];
 
-class IronAxe extends Tool{
-	public function __construct(int $meta = 0){
-		parent::__construct(self::IRON_AXE, $meta, "Iron Axe");
-	}
-
-	public function isAxe(){
-		return Tool::TIER_IRON;
-	}
-
-	public function getAttackPoints() : int{
-		return 6;
-	}
 }

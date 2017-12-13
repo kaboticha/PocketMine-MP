@@ -81,7 +81,7 @@ namespace pocketmine {
 
 	const NAME = "PocketMine-MP";
 	const VERSION = "1.7dev";
-	const API_VERSION = "3.0.0-ALPHA9";
+	const API_VERSION = "3.0.0-ALPHA10";
 	const CODENAME = "[REDACTED]";
 
 	const MIN_PHP_VERSION = "7.2.0RC3";
@@ -170,6 +170,8 @@ namespace pocketmine {
 
 	ini_set("memory_limit", '-1');
 	define('pocketmine\START_TIME', microtime(true));
+
+	define('pocketmine\RESOURCE_PATH', \pocketmine\PATH . 'src' . DIRECTORY_SEPARATOR . 'pocketmine' . DIRECTORY_SEPARATOR . 'resources' . DIRECTORY_SEPARATOR);
 
 	$opts = getopt("", ["data:", "plugins:", "no-wizard", "enable-profiler"]);
 
@@ -466,8 +468,8 @@ namespace pocketmine {
 
 		if(extension_loaded("leveldb")){
 			$leveldb_version = phpversion("leveldb");
-			if(version_compare($leveldb_version, "0.2.0") < 0){
-				$logger->critical("php-leveldb >= 0.2.0 is required, while you have $leveldb_version");
+			if(version_compare($leveldb_version, "0.2.1") < 0){
+				$logger->critical("php-leveldb >= 0.2.1 is required, while you have $leveldb_version");
 				++$errors;
 			}
 		}
@@ -549,7 +551,7 @@ namespace pocketmine {
 		}
 
 		ThreadManager::init();
-		new Server($autoloader, $logger, \pocketmine\PATH, \pocketmine\DATA, \pocketmine\PLUGIN_PATH);
+		new Server($autoloader, $logger, \pocketmine\DATA, \pocketmine\PLUGIN_PATH);
 
 		$logger->info("Stopping other threads");
 

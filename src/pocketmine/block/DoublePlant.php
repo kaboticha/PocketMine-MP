@@ -30,7 +30,7 @@ use pocketmine\math\Vector3;
 use pocketmine\Player;
 
 class DoublePlant extends Flowable{
-	const BITFLAG_TOP = 0x08;
+	public const BITFLAG_TOP = 0x08;
 
 	protected $id = self::DOUBLE_PLANT;
 
@@ -109,19 +109,25 @@ class DoublePlant extends Flowable{
 		return 0x07;
 	}
 
+	public function getToolType() : int{
+		return ($this->meta === 2 or $this->meta === 3) ? BlockToolType::TYPE_SHEARS : BlockToolType::TYPE_NONE;
+	}
+
+	public function getToolHarvestLevel() : int{
+		return ($this->meta === 2 or $this->meta === 3) ? 1 : 0; //only grass or fern require shears
+	}
+
 	public function getDrops(Item $item) : array{
 		if($this->meta & self::BITFLAG_TOP){
-			if(!$item->isShears() and ($this->meta === 2 or $this->meta === 3)){ //grass or fern
-				if(mt_rand(0, 24) === 0){
-					return [
-						ItemFactory::get(Item::SEEDS, 0, 1)
-					];
-				}
-
-				return [];
+			if($this->isCompatibleWithTool($item)){
+				return parent::getDrops($item);
 			}
 
-			return parent::getDrops($item);
+			if(mt_rand(0, 24) === 0){
+				return [
+					ItemFactory::get(Item::SEEDS, 0, 1)
+				];
+			}
 		}
 
 		return [];

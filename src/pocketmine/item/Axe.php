@@ -23,17 +23,23 @@ declare(strict_types=1);
 
 namespace pocketmine\item;
 
+use pocketmine\block\BlockToolType;
 
-class DiamondAxe extends Tool{
-	public function __construct(int $meta = 0){
-		parent::__construct(self::DIAMOND_AXE, $meta, "Diamond Axe");
-	}
+class Axe extends TieredTool{
 
 	public function isAxe(){
-		return Tool::TIER_DIAMOND;
+		return $this->tier;
+	}
+
+	public function getBlockToolType() : int{
+		return BlockToolType::TYPE_AXE;
+	}
+
+	public function getBlockToolHarvestLevel() : int{
+		return $this->tier;
 	}
 
 	public function getAttackPoints() : int{
-		return 7;
+		return self::getBaseDamageFromTier($this->tier) - 1;
 	}
 }

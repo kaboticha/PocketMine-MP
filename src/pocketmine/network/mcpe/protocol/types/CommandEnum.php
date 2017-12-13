@@ -21,19 +21,12 @@
 
 declare(strict_types=1);
 
-namespace pocketmine\item;
+namespace pocketmine\network\mcpe\protocol\types;
 
+class CommandEnum{
+	/** @var string */
+	public $enumName;
+	/** @var string[] */
+	public $enumValues = [];
 
-class StonePickaxe extends Tool{
-	public function __construct(int $meta = 0){
-		parent::__construct(self::STONE_PICKAXE, $meta, "Stone Pickaxe");
-	}
-
-	public function isPickaxe(){
-		return Tool::TIER_STONE;
-	}
-
-	public function getAttackPoints() : int{
-		return 4;
-	}
 }

@@ -23,18 +23,32 @@ declare(strict_types=1);
 
 namespace pocketmine\item;
 
+use pocketmine\block\Block;
+use pocketmine\block\BlockToolType;
 
-class StoneAxe extends Tool{
-	public function __construct(int $meta = 0){
-		parent::__construct(self::STONE_AXE, $meta, "Stone Axe");
+class Sword extends TieredTool{
+
+	public function isSword(){
+		return $this->tier;
 	}
 
-
-	public function isAxe(){
-		return Tool::TIER_STONE;
+	public function getBlockToolType() : int{
+		return BlockToolType::TYPE_SWORD;
 	}
 
 	public function getAttackPoints() : int{
-		return 5;
+		return self::getBaseDamageFromTier($this->tier);
+	}
+
+	public function getBlockToolHarvestLevel() : int{
+		return 1;
+	}
+
+	public function getMiningEfficiency(Block $block) : float{
+		return parent::getMiningEfficiency($block) * 1.5; //swords break any block 1.5x faster than hand
+	}
+
+	protected function getBaseMiningEfficiency() : float{
+		return 10;
 	}
 }

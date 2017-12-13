@@ -28,6 +28,8 @@ use pocketmine\event\entity\EntityDamageByChildEntityEvent;
 use pocketmine\event\entity\EntityDamageByEntityEvent;
 use pocketmine\event\entity\EntityDamageEvent;
 use pocketmine\event\entity\EntityDeathEvent;
+use pocketmine\event\entity\EntityEffectAddEvent;
+use pocketmine\event\entity\EntityEffectRemoveEvent;
 use pocketmine\event\entity\EntityRegainHealthEvent;
 use pocketmine\event\Timings;
 use pocketmine\item\Item as ItemItem;
@@ -51,7 +53,9 @@ abstract class Living extends Entity implements Damageable{
 	protected $attackTime = 0;
 
 	/** @var int */
-	protected $maxDeadTicks = 20;
+	public $deadTicks = 0;
+	/** @var int */
+	protected $maxDeadTicks = 25;
 
 	protected $invisible = false;
 
@@ -68,7 +72,7 @@ abstract class Living extends Entity implements Damageable{
 		$health = $this->getMaxHealth();
 
 		if($this->namedtag->hasTag("HealF", FloatTag::class)){
-			$health = new FloatTag("Health", $this->namedtag->getFloat("HealF"));
+			$health = $this->namedtag->getFloat("HealF");
 			$this->namedtag->removeTag("HealF");
 		}elseif($this->namedtag->hasTag("Health")){
 			$healthTag = $this->namedtag->getTag("Health");
@@ -195,6 +199,11 @@ abstract class Living extends Entity implements Damageable{
 	public function removeEffect(int $effectId){
 		if(isset($this->effects[$effectId])){
 			$effect = $this->effects[$effectId];
+			$this->server->getPluginManager()->callEvent($ev = new EntityEffectRemoveEvent($this, $effect));
+			if($ev->isCancelled()){
+				return;
+			}
+
 			unset($this->effects[$effectId]);
 			$effect->remove($this);
 
@@ -231,24 +240,37 @@ abstract class Living extends Entity implements Damageable{
 	 * If a weaker or equal-strength effect is already applied but has a shorter duration, it will be replaced.
 	 *
 	 * @param Effect $effect
+	 *
+	 * @return bool whether the effect has been successfully applied.
 	 */
-	public function addEffect(Effect $effect){
+	public function addEffect(Effect $effect) : bool{
+		$oldEffect = null;
+		$cancelled = false;
+
 		if(isset($this->effects[$effect->getId()])){
 			$oldEffect = $this->effects[$effect->getId()];
 			if(
 				abs($effect->getAmplifier()) < $oldEffect->getAmplifier()
 				or (abs($effect->getAmplifier()) === abs($oldEffect->getAmplifier()) and $effect->getDuration() < $oldEffect->getDuration())
 			){
-				return;
+				$cancelled = true;
 			}
-			$effect->add($this, $oldEffect);
-		}else{
-			$effect->add($this);
 		}
 
+		$ev = new EntityEffectAddEvent($this, $effect, $oldEffect);
+		$ev->setCancelled($cancelled);
+
+		$this->server->getPluginManager()->callEvent($ev);
+		if($ev->isCancelled()){
+			return false;
+		}
+
+		$effect->add($this, $oldEffect);
 		$this->effects[$effect->getId()] = $effect;
 
 		$this->recalculateEffectColor();
+
+		return true;
 	}
 
 	/**
@@ -365,7 +387,7 @@ abstract class Living extends Entity implements Damageable{
 			}
 
 			if($e !== null){
-				if($e->isOnFire() > 0){
+				if($e->isOnFire()){
 					$this->setOnFire(2 * $this->level->getDifficulty());
 				}
 
@@ -377,9 +399,17 @@ abstract class Living extends Entity implements Damageable{
 
 		$this->setAbsorption(max(0, $this->getAbsorption() + $source->getDamage(EntityDamageEvent::MODIFIER_ABSORPTION)));
 
-		$this->broadcastEntityEvent($this->getHealth() <= 0 ? EntityEventPacket::DEATH_ANIMATION : EntityEventPacket::HURT_ANIMATION); //Ouch!
+		if($this->isAlive()){
+			$this->doHitAnimation();
+		}else{
+			$this->startDeathAnimation();
+		}
 
 		$this->attackTime = 10; //0.5 seconds cooldown
+	}
+
+	protected function doHitAnimation() : void{
+		$this->broadcastEntityEvent(EntityEventPacket::HURT_ANIMATION);
 	}
 
 	public function knockBack(Entity $attacker, float $damage, float $x, float $z, float $base = 0.4){
@@ -411,14 +441,34 @@ abstract class Living extends Entity implements Damageable{
 			return;
 		}
 		parent::kill();
-		$this->callDeathEvent();
+		$this->onDeath();
 	}
 
-	protected function callDeathEvent(){
+	protected function onDeath(){
 		$this->server->getPluginManager()->callEvent($ev = new EntityDeathEvent($this, $this->getDrops()));
 		foreach($ev->getDrops() as $item){
 			$this->getLevel()->dropItem($this, $item);
 		}
+	}
+
+	protected function onDeathUpdate(int $tickDiff) : bool{
+		if($this->deadTicks < $this->maxDeadTicks){
+			$this->deadTicks += $tickDiff;
+			if($this->deadTicks >= $this->maxDeadTicks){
+				$this->endDeathAnimation();
+				//TODO: spawn experience orbs here
+			}
+		}
+
+		return $this->deadTicks >= $this->maxDeadTicks;
+	}
+
+	protected function startDeathAnimation() : void{
+		$this->broadcastEntityEvent(EntityEventPacket::DEATH_ANIMATION);
+	}
+
+	protected function endDeathAnimation() : void{
+		//TODO
 	}
 
 	public function entityBaseTick(int $tickDiff = 1) : bool{
@@ -436,9 +486,7 @@ abstract class Living extends Entity implements Damageable{
 			}
 
 			if(!$this->canBreathe()){
-				if($this->isBreathing()){
-					$this->setBreathing(false);
-				}
+				$this->setBreathing(false);
 				$this->doAirSupplyTick($tickDiff);
 			}elseif(!$this->isBreathing()){
 				$this->setBreathing(true);
@@ -456,25 +504,17 @@ abstract class Living extends Entity implements Damageable{
 	}
 
 	protected function doEffectsTick(int $tickDiff = 1){
-		if(count($this->effects) > 0){
-			foreach($this->effects as $effect){
-				if($effect->canTick()){
-					$effect->applyEffect($this);
-				}
-
-				$duration = $effect->getDuration() - $tickDiff;
-				if($duration <= 0){
-					$this->removeEffect($effect->getId());
-				}else{
-					$effect->setDuration($duration);
-				}
+		foreach($this->effects as $effect){
+			if($effect->canTick()){
+				$effect->applyEffect($this);
 			}
-		}
-	}
 
-	protected function dealFireDamage(){
-		if(!$this->hasEffect(Effect::FIRE_RESISTANCE)){
-			parent::dealFireDamage();
+			$duration = $effect->getDuration() - $tickDiff;
+			if($duration <= 0){
+				$this->removeEffect($effect->getId());
+			}else{
+				$effect->setDuration($duration);
+			}
 		}
 	}
 
@@ -550,7 +590,7 @@ abstract class Living extends Entity implements Damageable{
 	 * @param int $ticks
 	 */
 	public function setMaxAirSupplyTicks(int $ticks){
-		$this->setDataProperty(self::DATA_AIR, self::DATA_TYPE_SHORT, $ticks);
+		$this->setDataProperty(self::DATA_MAX_AIR, self::DATA_TYPE_SHORT, $ticks);
 	}
 
 	/**

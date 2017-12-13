@@ -21,19 +21,17 @@
 
 declare(strict_types=1);
 
-namespace pocketmine\item;
+namespace pocketmine\network\mcpe\protocol\types;
 
-
-class StoneSword extends Tool{
-	public function __construct(int $meta = 0){
-		parent::__construct(self::STONE_SWORD, $meta, "Stone Sword");
-	}
-
-	public function isSword(){
-		return Tool::TIER_STONE;
-	}
-
-	public function getAttackPoints() : int{
-		return 6;
-	}
+class CommandParameter{
+	/** @var string */
+	public $paramName;
+	/** @var int */
+	public $paramType;
+	/** @var bool */
+	public $isOptional;
+	/** @var CommandEnum|null */
+	public $enum;
+	/** @var string|null */
+	public $postfix;
 }

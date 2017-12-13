@@ -39,7 +39,7 @@ use pocketmine\utils\MainLogger;
 
 class McRegion extends BaseLevelProvider{
 
-	const REGION_FILE_EXTENSION = "mcr";
+	public const REGION_FILE_EXTENSION = "mcr";
 
 	/** @var RegionLoader[] */
 	protected $regions = [];
@@ -88,11 +88,9 @@ class McRegion extends BaseLevelProvider{
 
 		$entities = [];
 
-		foreach($chunk->getEntities() as $entity){
-			if($entity->canSaveWithChunk() and !$entity->isClosed()){
-				$entity->saveNBT();
-				$entities[] = $entity->namedtag;
-			}
+		foreach($chunk->getSavableEntities() as $entity){
+			$entity->saveNBT();
+			$entities[] = $entity->namedtag;
 		}
 
 		$nbt->setTag(new ListTag("Entities", $entities, NBT::TAG_Compound));
@@ -344,7 +342,7 @@ class McRegion extends BaseLevelProvider{
 		/** @noinspection PhpStrictTypeCheckingInspection */
 		$chunk = $this->getRegion($regionX, $regionZ)->readChunk($chunkX - $regionX * 32, $chunkZ - $regionZ * 32);
 		if($chunk === null and $create){
-			$chunk = $this->getEmptyChunk($chunkX, $chunkZ);
+			$chunk = new Chunk($chunkX, $chunkZ);
 		}
 		$this->level->timings->syncChunkLoadDataTimer->stopTiming();
 
@@ -417,16 +415,6 @@ class McRegion extends BaseLevelProvider{
 	public static function getRegionIndex(int $chunkX, int $chunkZ, &$x, &$z){
 		$x = $chunkX >> 5;
 		$z = $chunkZ >> 5;
-	}
-
-	/**
-	 * @param int $chunkX
-	 * @param int $chunkZ
-	 *
-	 * @return Chunk
-	 */
-	public function getEmptyChunk(int $chunkX, int $chunkZ) : Chunk{
-		return Chunk::getEmptyChunk($chunkX, $chunkZ);
 	}
 
 	/**

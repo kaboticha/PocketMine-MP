@@ -21,19 +21,14 @@
 
 declare(strict_types=1);
 
-namespace pocketmine\item;
+namespace pocketmine\network\mcpe\protocol\types;
 
+class CommandOutputMessage{
+	/** @var bool */
+	public $isInternal;
+	/** @var string */
+	public $messageId;
+	/** @var string[] */
+	public $parameters = [];
 
-class GoldPickaxe extends Tool{
-	public function __construct(int $meta = 0){
-		parent::__construct(self::GOLD_PICKAXE, $meta, "Gold Pickaxe");
-	}
-
-	public function isPickaxe(){
-		return Tool::TIER_GOLD;
-	}
-
-	public function getAttackPoints() : int{
-		return 3;
-	}
 }

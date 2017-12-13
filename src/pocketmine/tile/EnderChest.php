@@ -21,23 +21,14 @@
 
 declare(strict_types=1);
 
-namespace pocketmine\item;
+namespace pocketmine\tile;
 
+use pocketmine\nbt\tag\CompoundTag;
 
-class WoodenShovel extends Tool{
-	public function __construct(int $meta = 0){
-		parent::__construct(self::WOODEN_SHOVEL, $meta, "Wooden Shovel");
+class EnderChest extends Spawnable{
+
+	public function addAdditionalSpawnData(CompoundTag $nbt) : void{
+
 	}
 
-	public function isShovel(){
-		return Tool::TIER_WOODEN;
-	}
-
-	public function getFuelTime() : int{
-		return 200;
-	}
-
-	public function getAttackPoints() : int{
-		return 2;
-	}
 }

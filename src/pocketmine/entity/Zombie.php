@@ -23,13 +23,11 @@ declare(strict_types=1);
 
 namespace pocketmine\entity;
 
-use pocketmine\event\entity\EntityDamageByEntityEvent;
 use pocketmine\item\Item as ItemItem;
 use pocketmine\item\ItemFactory;
-use pocketmine\Player;
 
 class Zombie extends Monster{
-	const NETWORK_ID = self::ZOMBIE;
+	public const NETWORK_ID = self::ZOMBIE;
 
 	public $width = 0.6;
 	public $height = 1.8;
