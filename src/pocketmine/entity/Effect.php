@@ -24,8 +24,6 @@ declare(strict_types=1);
 namespace pocketmine\entity;
 
 use pocketmine\event\entity\EntityDamageEvent;
-use pocketmine\event\entity\EntityEffectAddEvent;
-use pocketmine\event\entity\EntityEffectRemoveEvent;
 use pocketmine\event\entity\EntityRegainHealthEvent;
 use pocketmine\event\player\PlayerExhaustEvent;
 use pocketmine\network\mcpe\protocol\MobEffectPacket;
@@ -57,12 +55,13 @@ class Effect{
 	public const ABSORPTION = 22;
 	public const SATURATION = 23;
 	public const LEVITATION = 24; //TODO
+	public const FATAL_POISON = 25;
 
 	/** @var Effect[] */
 	protected static $effects = [];
 
 	public static function init(){
-		$config = new Config(\pocketmine\PATH . "src/pocketmine/resources/effects.json", Config::JSON, []);
+		$config = new Config(\pocketmine\RESOURCE_PATH . "effects.json", Config::JSON, []);
 
 		foreach($config->getAll() as $name => $data){
 			$color = hexdec(substr($data["color"], 3));
@@ -260,7 +259,10 @@ class Effect{
 	}
 
 	/**
-	 * Returns whether the effect is ambient.
+	 * Returns whether the effect originated from the ambient environment.
+	 * Ambient effects can originate from things such as a Beacon's area of effect radius.
+	 * If this flag is set, the amount of visible particles will be reduced by a factor of 5.
+	 *
 	 * @return bool
 	 */
 	public function isAmbient() : bool{
@@ -297,6 +299,7 @@ class Effect{
 	public function canTick() : bool{
 		switch($this->id){
 			case Effect::POISON:
+			case Effect::FATAL_POISON:
 				if(($interval = (25 >> $this->amplifier)) > 0){
 					return ($this->duration % $interval) === 0;
 				}
@@ -334,11 +337,14 @@ class Effect{
 	 */
 	public function applyEffect(Entity $entity){
 		switch($this->id){
+			/** @noinspection PhpMissingBreakStatementInspection */
 			case Effect::POISON:
-				if($entity->getHealth() > 1){
-					$ev = new EntityDamageEvent($entity, EntityDamageEvent::CAUSE_MAGIC, 1);
-					$entity->attack($ev);
+				if($entity->getHealth() <= 1){
+					break;
 				}
+			case Effect::FATAL_POISON:
+				$ev = new EntityDamageEvent($entity, EntityDamageEvent::CAUSE_MAGIC, 1);
+				$entity->attack($ev);
 				break;
 
 			case Effect::WITHER:
@@ -399,10 +405,6 @@ class Effect{
 	 * @param Effect|null $oldEffect
 	 */
 	public function add(Entity $entity, Effect $oldEffect = null){
-		$entity->getLevel()->getServer()->getPluginManager()->callEvent($ev = new EntityEffectAddEvent($entity, $this, $oldEffect));
-		if($ev->isCancelled()){
-			return;
-		}
 		if($entity instanceof Player){
 			$pk = new MobEffectPacket();
 			$pk->entityRuntimeId = $entity->getId();
@@ -457,11 +459,6 @@ class Effect{
 	 * @param bool   $send
 	 */
 	public function remove(Entity $entity, bool $send = true){
-		$entity->getLevel()->getServer()->getPluginManager()->callEvent($ev = new EntityEffectRemoveEvent($entity, $this));
-		if($ev->isCancelled()){
-			return;
-		}
-
 		if($send and $entity instanceof Player){
 			$pk = new MobEffectPacket();
 			$pk->entityRuntimeId = $entity->getId();

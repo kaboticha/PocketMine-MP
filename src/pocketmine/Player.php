@@ -119,7 +119,6 @@ use pocketmine\network\mcpe\protocol\LoginPacket;
 use pocketmine\network\mcpe\protocol\MobEquipmentPacket;
 use pocketmine\network\mcpe\protocol\MovePlayerPacket;
 use pocketmine\network\mcpe\protocol\PlayerActionPacket;
-use pocketmine\network\mcpe\protocol\PlayerHotbarPacket;
 use pocketmine\network\mcpe\protocol\PlayStatusPacket;
 use pocketmine\network\mcpe\protocol\ProtocolInfo;
 use pocketmine\network\mcpe\protocol\RequestChunkRadiusPacket;
@@ -1688,7 +1687,7 @@ class Player extends Human implements CommandSender, ChunkLoader, IPlayer{
 							$expectedVelocity = (-$this->gravity) / $this->drag - ((-$this->gravity) / $this->drag) * exp(-$this->drag * ($this->inAirTicks - $this->startAirTicks));
 							$diff = ($this->speed->y - $expectedVelocity) ** 2;
 
-							if(!$this->hasEffect(Effect::JUMP) and $diff > 0.6 and $expectedVelocity < $this->speed->y and !$this->server->getAllowFlight()){
+							if(!$this->hasEffect(Effect::JUMP) and !$this->hasEffect(Effect::LEVITATION) and $diff > 0.6 and $expectedVelocity < $this->speed->y and !$this->server->getAllowFlight()){
 								if($this->inAirTicks < 100){
 									$this->setMotion(new Vector3(0, $expectedVelocity, 0));
 								}elseif($this->kick($this->server->getLanguage()->translateString("kick.reason.cheat", ["%ability.flight"]))){
@@ -1842,7 +1841,7 @@ class Player extends Human implements CommandSender, ChunkLoader, IPlayer{
 		}
 
 		if(
-			($this->server->getNameBans()->isBanned($this->iusername) or $this->server->getIPBans()->isBanned($this->getAddress())) and
+			($this->isBanned() or $this->server->getIPBans()->isBanned($this->getAddress())) and
 			$this->kick("You are banned", false)
 		){
 			return true;
@@ -2218,15 +2217,16 @@ class Player extends Human implements CommandSender, ChunkLoader, IPlayer{
 		/** @var InventoryAction[] $actions */
 		$actions = [];
 		foreach($packet->actions as $networkInventoryAction){
-			$action = $networkInventoryAction->createInventoryAction($this);
-
-			if($action === null){
-				$this->server->getLogger()->debug("Unmatched inventory action from " . $this->getName() . ": " . json_encode($networkInventoryAction));
+			try{
+				$action = $networkInventoryAction->createInventoryAction($this);
+				if($action !== null){
+					$actions[] = $action;
+				}
+			}catch(\Throwable $e){
+				$this->server->getLogger()->debug("Unhandled inventory action from " . $this->getName() . ": " . $e->getMessage());
 				$this->sendAllInventories();
 				return false;
 			}
-
-			$actions[] = $action;
 		}
 
 		if($packet->isCraftingPart){
@@ -2493,8 +2493,8 @@ class Player extends Human implements CommandSender, ChunkLoader, IPlayer{
 								}
 
 								return true;
-							}elseif($this->inventory->getItemInHand()->getId() === Item::BUCKET and $this->inventory->getItemInHand()->getDamage() === 1){ //Milk!
-								$this->server->getPluginManager()->callEvent($ev = new PlayerItemConsumeEvent($this, $this->inventory->getItemInHand()));
+							}elseif($slot->getId() === Item::BUCKET and $slot->getDamage() === 1){ //Milk!
+								$this->server->getPluginManager()->callEvent($ev = new PlayerItemConsumeEvent($this, $slot));
 								if($ev->isCancelled()){
 									$this->inventory->sendContents($this);
 
@@ -2502,7 +2502,6 @@ class Player extends Human implements CommandSender, ChunkLoader, IPlayer{
 								}
 
 								if($this->isSurvival()){
-									$slot = $this->inventory->getItemInHand();
 									--$slot->count;
 									$this->inventory->setItemInHand($slot);
 									$this->inventory->addItem(ItemFactory::get(Item::BUCKET, 0, 1));
@@ -3464,7 +3463,7 @@ class Player extends Human implements CommandSender, ChunkLoader, IPlayer{
 		$this->sendRespawnPacket($this->getSpawn());
 	}
 
-	protected function callDeathEvent(){
+	protected function onDeath(){
 		$message = "death.attack.generic";
 
 		$params = [
@@ -3609,7 +3608,6 @@ class Player extends Human implements CommandSender, ChunkLoader, IPlayer{
 		}
 
 		if($this->isCreative()
-			and $source->getCause() !== EntityDamageEvent::CAUSE_MAGIC
 			and $source->getCause() !== EntityDamageEvent::CAUSE_SUICIDE
 			and $source->getCause() !== EntityDamageEvent::CAUSE_VOID
 		){

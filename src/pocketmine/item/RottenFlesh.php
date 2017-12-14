@@ -23,17 +23,30 @@ declare(strict_types=1);
 
 namespace pocketmine\item;
 
+use pocketmine\entity\Effect;
 
-class StonePickaxe extends Tool{
+class RottenFlesh extends Food{
+
 	public function __construct(int $meta = 0){
-		parent::__construct(self::STONE_PICKAXE, $meta, "Stone Pickaxe");
+		parent::__construct(self::ROTTEN_FLESH, $meta, "Rotten Flesh");
 	}
 
-	public function isPickaxe(){
-		return Tool::TIER_STONE;
-	}
-
-	public function getAttackPoints() : int{
+	public function getFoodRestore() : int{
 		return 4;
 	}
+
+	public function getSaturationRestore() : float{
+		return 0.8;
+	}
+
+	public function getAdditionalEffects() : array{
+		if(lcg_value() <= 0.8){
+			return [
+				Effect::getEffect(Effect::HUNGER)->setDuration(600)
+			];
+		}
+
+		return [];
+	}
+
 }

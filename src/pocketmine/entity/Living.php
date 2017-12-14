@@ -28,6 +28,8 @@ use pocketmine\event\entity\EntityDamageByChildEntityEvent;
 use pocketmine\event\entity\EntityDamageByEntityEvent;
 use pocketmine\event\entity\EntityDamageEvent;
 use pocketmine\event\entity\EntityDeathEvent;
+use pocketmine\event\entity\EntityEffectAddEvent;
+use pocketmine\event\entity\EntityEffectRemoveEvent;
 use pocketmine\event\entity\EntityRegainHealthEvent;
 use pocketmine\event\Timings;
 use pocketmine\item\Item as ItemItem;
@@ -70,7 +72,7 @@ abstract class Living extends Entity implements Damageable{
 		$health = $this->getMaxHealth();
 
 		if($this->namedtag->hasTag("HealF", FloatTag::class)){
-			$health = new FloatTag("Health", $this->namedtag->getFloat("HealF"));
+			$health = $this->namedtag->getFloat("HealF");
 			$this->namedtag->removeTag("HealF");
 		}elseif($this->namedtag->hasTag("Health")){
 			$healthTag = $this->namedtag->getTag("Health");
@@ -197,6 +199,11 @@ abstract class Living extends Entity implements Damageable{
 	public function removeEffect(int $effectId){
 		if(isset($this->effects[$effectId])){
 			$effect = $this->effects[$effectId];
+			$this->server->getPluginManager()->callEvent($ev = new EntityEffectRemoveEvent($this, $effect));
+			if($ev->isCancelled()){
+				return;
+			}
+
 			unset($this->effects[$effectId]);
 			$effect->remove($this);
 
@@ -233,24 +240,37 @@ abstract class Living extends Entity implements Damageable{
 	 * If a weaker or equal-strength effect is already applied but has a shorter duration, it will be replaced.
 	 *
 	 * @param Effect $effect
+	 *
+	 * @return bool whether the effect has been successfully applied.
 	 */
-	public function addEffect(Effect $effect){
+	public function addEffect(Effect $effect) : bool{
+		$oldEffect = null;
+		$cancelled = false;
+
 		if(isset($this->effects[$effect->getId()])){
 			$oldEffect = $this->effects[$effect->getId()];
 			if(
 				abs($effect->getAmplifier()) < $oldEffect->getAmplifier()
 				or (abs($effect->getAmplifier()) === abs($oldEffect->getAmplifier()) and $effect->getDuration() < $oldEffect->getDuration())
 			){
-				return;
+				$cancelled = true;
 			}
-			$effect->add($this, $oldEffect);
-		}else{
-			$effect->add($this);
 		}
 
+		$ev = new EntityEffectAddEvent($this, $effect, $oldEffect);
+		$ev->setCancelled($cancelled);
+
+		$this->server->getPluginManager()->callEvent($ev);
+		if($ev->isCancelled()){
+			return false;
+		}
+
+		$effect->add($this, $oldEffect);
 		$this->effects[$effect->getId()] = $effect;
 
 		$this->recalculateEffectColor();
+
+		return true;
 	}
 
 	/**
@@ -367,7 +387,7 @@ abstract class Living extends Entity implements Damageable{
 			}
 
 			if($e !== null){
-				if($e->isOnFire() > 0){
+				if($e->isOnFire()){
 					$this->setOnFire(2 * $this->level->getDifficulty());
 				}
 
@@ -421,10 +441,10 @@ abstract class Living extends Entity implements Damageable{
 			return;
 		}
 		parent::kill();
-		$this->callDeathEvent();
+		$this->onDeath();
 	}
 
-	protected function callDeathEvent(){
+	protected function onDeath(){
 		$this->server->getPluginManager()->callEvent($ev = new EntityDeathEvent($this, $this->getDrops()));
 		foreach($ev->getDrops() as $item){
 			$this->getLevel()->dropItem($this, $item);
@@ -497,12 +517,6 @@ abstract class Living extends Entity implements Damageable{
 			}else{
 				$effect->setDuration($duration);
 			}
-		}
-	}
-
-	protected function dealFireDamage(){
-		if(!$this->hasEffect(Effect::FIRE_RESISTANCE)){
-			parent::dealFireDamage();
 		}
 	}
 

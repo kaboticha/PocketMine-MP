@@ -46,7 +46,6 @@ use pocketmine\event\server\ServerCommandEvent;
 use pocketmine\event\TextContainer;
 use pocketmine\event\Timings;
 use pocketmine\event\TimingsHandler;
-use pocketmine\event\TranslationContainer;
 use pocketmine\inventory\CraftingManager;
 use pocketmine\inventory\Recipe;
 use pocketmine\item\enchantment\Enchantment;
@@ -235,7 +234,6 @@ class Server{
 	private $serverID;
 
 	private $autoloader;
-	private $filePath;
 	private $dataPath;
 	private $pluginPath;
 
@@ -319,7 +317,14 @@ class Server{
 	 * @return string
 	 */
 	public function getFilePath() : string{
-		return $this->filePath;
+		return \pocketmine\PATH;
+	}
+
+	/**
+	 * @return string
+	 */
+	public function getResourcePath() : string{
+		return \pocketmine\RESOURCE_PATH;
 	}
 
 	/**
@@ -1423,19 +1428,16 @@ class Server{
 	/**
 	 * @param \ClassLoader    $autoloader
 	 * @param \ThreadedLogger $logger
-	 * @param string          $filePath
 	 * @param string          $dataPath
 	 * @param string          $pluginPath
 	 */
-	public function __construct(\ClassLoader $autoloader, \ThreadedLogger $logger, string $filePath, string $dataPath, string $pluginPath){
+	public function __construct(\ClassLoader $autoloader, \ThreadedLogger $logger, string $dataPath, string $pluginPath){
 		self::$instance = $this;
 		self::$sleeper = new \Threaded;
 		$this->autoloader = $autoloader;
 		$this->logger = $logger;
 
 		try{
-
-			$this->filePath = $filePath;
 			if(!file_exists($dataPath . "worlds/")){
 				mkdir($dataPath . "worlds/", 0777);
 			}
@@ -1457,7 +1459,7 @@ class Server{
 
 			$this->logger->info("Loading pocketmine.yml...");
 			if(!file_exists($this->dataPath . "pocketmine.yml")){
-				$content = file_get_contents($this->filePath . "src/pocketmine/resources/pocketmine.yml");
+				$content = file_get_contents(\pocketmine\RESOURCE_PATH . "pocketmine.yml");
 				if($version->isDev()){
 					$content = str_replace("preferred-channel: stable", "preferred-channel: beta", $content);
 				}
@@ -2395,7 +2397,11 @@ class Server{
 					}
 				}
 			}catch(\Throwable $e){
-				$this->logger->critical($this->getLanguage()->translateString("pocketmine.level.tickError", [$level->getName(), $e->getMessage()]));
+				if(!$level->isClosed()){
+					$this->logger->critical($this->getLanguage()->translateString("pocketmine.level.tickError", [$level->getName(), $e->getMessage()]));
+				}else{
+					$this->logger->critical($this->getLanguage()->translateString("pocketmine.level.tickUnloadError", [$level->getName()]));
+				}
 				$this->logger->logException($e);
 			}
 		}

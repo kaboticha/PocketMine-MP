@@ -146,6 +146,9 @@ class Level implements ChunkManager, Metadatable{
 	/** @var LevelProvider */
 	private $provider;
 
+	/** @var int */
+	private $worldHeight;
+
 	/** @var ChunkLoader[] */
 	private $loaders = [];
 	/** @var int[] */
@@ -166,8 +169,15 @@ class Level implements ChunkManager, Metadatable{
 	/** @var bool */
 	public $stopTime = false;
 
+	/** @var float */
+	private $sunAnglePercentage = 0.0;
+	/** @var int */
+	private $skyLightReduction = 0;
+
 	/** @var string */
 	private $folderName;
+	/** @var string */
+	private $displayName;
 
 	/** @var Chunk[] */
 	private $chunks = [];
@@ -336,10 +346,15 @@ class Level implements ChunkManager, Metadatable{
 		}else{
 			throw new LevelException("Provider is not a subclass of LevelProvider");
 		}
-		$this->server->getLogger()->info($this->server->getLanguage()->translateString("pocketmine.level.preparing", [$this->provider->getName()]));
+
+		$this->displayName = $this->provider->getName();
+		$this->worldHeight = $this->provider->getWorldHeight();
+
+		$this->server->getLogger()->info($this->server->getLanguage()->translateString("pocketmine.level.preparing", [$this->displayName]));
 		$this->generator = Generator::getGenerator($this->provider->getGenerator());
 
 		$this->folderName = $name;
+
 		$this->scheduledBlockUpdateQueue = new ReversePriorityQueue();
 		$this->scheduledBlockUpdateQueue->setExtractFlags(\SplPriorityQueue::EXTR_BOTH);
 
@@ -592,6 +607,14 @@ class Level implements ChunkManager, Metadatable{
 		return $this->chunkLoaders[Level::chunkHash($chunkX, $chunkZ)] ?? [];
 	}
 
+	/**
+	 * Queues a DataPacket to be sent to all players using the chunk at the specified X/Z coordinates at the end of the
+	 * current tick.
+	 *
+	 * @param int        $chunkX
+	 * @param int        $chunkZ
+	 * @param DataPacket $packet
+	 */
 	public function addChunkPacket(int $chunkX, int $chunkZ, DataPacket $packet){
 		if(!isset($this->chunkPackets[$index = Level::chunkHash($chunkX, $chunkZ)])){
 			$this->chunkPackets[$index] = [$packet];
@@ -687,6 +710,9 @@ class Level implements ChunkManager, Metadatable{
 
 		$this->checkTime();
 
+		$this->sunAnglePercentage = $this->computeSunAnglePercentage(); //Sun angle depends on the current time
+		$this->skyLightReduction = $this->computeSkyLightReduction(); //Sky light reduction depends on the sun angle
+
 		if(++$this->sendTimeTicker === 200){
 			$this->sendTime();
 			$this->sendTimeTicker = 0;
@@ -710,7 +736,7 @@ class Level implements ChunkManager, Metadatable{
 			Level::getBlockXYZ($index, $x, $y, $z);
 
 			$block = $this->getBlockAt($x, $y, $z);
-			$block->clearBoundingBoxes(); //for blocks like fences, force recalculation of connected AABBs
+			$block->clearCaches(); //for blocks like fences, force recalculation of connected AABBs
 
 			$this->server->getPluginManager()->callEvent($ev = new BlockUpdateEvent($block));
 			if(!$ev->isCancelled()){
@@ -1286,13 +1312,91 @@ class Level implements ChunkManager, Metadatable{
 	}
 
 	public function getFullLightAt(int $x, int $y, int $z) : int{
-		//TODO: decrease light level by time of day
-		$skyLight = $this->getBlockSkyLightAt($x, $y, $z);
+		$skyLight = $this->getRealBlockSkyLightAt($x, $y, $z);
 		if($skyLight < 15){
 			return max($skyLight, $this->getBlockLightAt($x, $y, $z));
 		}else{
 			return $skyLight;
 		}
+	}
+
+	/**
+	 * Computes the percentage of a circle away from noon the sun is currently at. This can be multiplied by 2 * M_PI to
+	 * get an angle in radians, or by 360 to get an angle in degrees.
+	 *
+	 * @return float
+	 */
+	public function computeSunAnglePercentage() : float{
+		$timeProgress = ($this->time % 24000) / 24000;
+
+		//0.0 needs to be high noon, not dusk
+		$sunProgress = $timeProgress + ($timeProgress < 0.25 ? 0.75 : -0.25);
+
+		//Offset the sun progress to be above the horizon longer at dusk and dawn
+		//this is roughly an inverted sine curve, which pushes the sun progress back at dusk and forwards at dawn
+		$diff = (((1 - ((cos($sunProgress * M_PI) + 1) / 2)) - $sunProgress) / 3);
+
+		return $sunProgress + $diff;
+	}
+
+	/**
+	 * Returns the percentage of a circle away from noon the sun is currently at.
+	 * @return float
+	 */
+	public function getSunAnglePercentage() : float{
+		return $this->sunAnglePercentage;
+	}
+
+	/**
+	 * Returns the current sun angle in radians.
+	 * @return float
+	 */
+	public function getSunAngleRadians() : float{
+		return $this->sunAnglePercentage * 2 * M_PI;
+	}
+
+	/**
+	 * Returns the current sun angle in degrees.
+	 * @return float
+	 */
+	public function getSunAngleDegrees() : float{
+		return $this->sunAnglePercentage * 360.0;
+	}
+
+	/**
+	 * Computes how many points of sky light is subtracted based on the current time. Used to offset raw chunk sky light
+	 * to get a real light value.
+	 *
+	 * @return int
+	 */
+	public function computeSkyLightReduction() : int{
+		$percentage = max(0, min(1, -(cos($this->getSunAngleRadians()) * 2 - 0.5)));
+
+		//TODO: check rain and thunder level
+
+		return (int) ($percentage * 11);
+	}
+
+	/**
+	 * Returns how many points of sky light is subtracted based on the current time.
+	 * @return int
+	 */
+	public function getSkyLightReduction() : int{
+		return $this->skyLightReduction;
+	}
+
+	/**
+	 * Returns the sky light level at the specified coordinates, offset by the current time and weather.
+	 *
+	 * @param int $x
+	 * @param int $y
+	 * @param int $z
+	 *
+	 * @return int 0-15
+	 */
+	public function getRealBlockSkyLightAt(int $x, int $y, int $z) : int{
+		$light = $this->getBlockSkyLightAt($x, $y, $z) - $this->skyLightReduction;
+		return $light < 0 ? 0 : $light;
 	}
 
 	/**
@@ -1309,7 +1413,7 @@ class Level implements ChunkManager, Metadatable{
 	public function isInWorld(float $x, float $y, float $z) : bool{
 		return (
 			$x <= INT32_MAX and $x >= INT32_MIN and
-			$y < $this->getWorldHeight() and $y >= 0 and
+			$y < $this->worldHeight and $y >= 0 and
 			$z <= INT32_MAX and $z >= INT32_MIN
 		);
 	}
@@ -1353,8 +1457,13 @@ class Level implements ChunkManager, Metadatable{
 			$index = Level::blockHash($x, $y, $z);
 			if($cached and isset($this->blockCache[$index])){
 				return $this->blockCache[$index];
-			}elseif(isset($this->chunks[$chunkIndex = Level::chunkHash($x >> 4, $z >> 4)])){
-				$fullState = $this->chunks[$chunkIndex]->getFullBlock($x & 0x0f, $y, $z & 0x0f);
+			}
+
+			$chunk = $this->chunks[$chunkIndex = Level::chunkHash($x >> 4, $z >> 4)] ?? null;
+			if($chunk !== null){
+				$fullState = $chunk->getFullBlock($x & 0x0f, $y, $z & 0x0f);
+			}else{
+				$addToCache = false;
 			}
 		}
 
@@ -1503,8 +1612,8 @@ class Level implements ChunkManager, Metadatable{
 			}
 
 			$block->position($pos);
-			$block->clearBoundingBoxes();
-			unset($this->blockCache[Level::blockHash($pos->x, $pos->y, $pos->z)]);
+			$block->clearCaches();
+			unset($this->blockCache[$blockHash = Level::blockHash($pos->x, $pos->y, $pos->z)]);
 
 			$index = Level::chunkHash($pos->x >> 4, $pos->z >> 4);
 
@@ -1516,7 +1625,7 @@ class Level implements ChunkManager, Metadatable{
 					$this->changedBlocks[$index] = [];
 				}
 
-				$this->changedBlocks[$index][Level::blockHash($block->x, $block->y, $block->z)] = clone $block;
+				$this->changedBlocks[$index][$blockHash] = clone $block;
 			}
 
 			foreach($this->getChunkLoaders($pos->x >> 4, $pos->z >> 4) as $loader){
@@ -1653,7 +1762,7 @@ class Level implements ChunkManager, Metadatable{
 		if($player !== null){
 			$ev = new BlockBreakEvent($player, $target, $item, $player->isCreative() or $player->allowInstaBreak());
 
-			if(($player->isSurvival() and $item instanceof Item and !$target->isBreakable($item)) or $player->isSpectator()){
+			if(($player->isSurvival() and !$target->isBreakable($item)) or $player->isSpectator()){
 				$ev->setCancelled();
 			}elseif($this->checkSpawnProtection($player, $target)){
 				$ev->setCancelled(); //set it to cancelled so plugins can bypass this
@@ -1706,7 +1815,7 @@ class Level implements ChunkManager, Metadatable{
 
 			$drops = $ev->getDrops();
 
-		}elseif($item !== null and !$target->isBreakable($item)){
+		}elseif(!$target->isBreakable($item)){
 			return false;
 		}else{
 			$drops = $target->getDrops($item); //Fixes tile entities being deleted before getting drops
@@ -1736,9 +1845,7 @@ class Level implements ChunkManager, Metadatable{
 			$tile->close();
 		}
 
-		if($item !== null){
-			$item->useOn($target);
-		}
+		$item->useOn($target);
 
 		if($player === null or $player->isSurvival()){
 			foreach($drops as $drop){
@@ -1771,7 +1878,7 @@ class Level implements ChunkManager, Metadatable{
 			$clickVector = new Vector3(0.0, 0.0, 0.0);
 		}
 
-		if($blockReplace->y >= $this->provider->getWorldHeight() or $blockReplace->y < 0){
+		if($blockReplace->y >= $this->worldHeight or $blockReplace->y < 0){
 			//TODO: build height limit messages for custom world heights and mcregion cap
 			return false;
 		}
@@ -2104,13 +2211,13 @@ class Level implements ChunkManager, Metadatable{
 	 * @param int $id 0-255
 	 */
 	public function setBlockIdAt(int $x, int $y, int $z, int $id){
-		unset($this->blockCache[Level::blockHash($x, $y, $z)]);
+		unset($this->blockCache[$blockHash = Level::blockHash($x, $y, $z)]);
 		$this->getChunk($x >> 4, $z >> 4, true)->setBlockId($x & 0x0f, $y, $z & 0x0f, $id & 0xff);
 
 		if(!isset($this->changedBlocks[$index = Level::chunkHash($x >> 4, $z >> 4)])){
 			$this->changedBlocks[$index] = [];
 		}
-		$this->changedBlocks[$index][Level::blockHash($x, $y, $z)] = $v = new Vector3($x, $y, $z);
+		$this->changedBlocks[$index][$blockHash] = $v = new Vector3($x, $y, $z);
 		foreach($this->getChunkLoaders($x >> 4, $z >> 4) as $loader){
 			$loader->onBlockChanged($v);
 		}
@@ -2166,13 +2273,13 @@ class Level implements ChunkManager, Metadatable{
 	 * @param int $data 0-15
 	 */
 	public function setBlockDataAt(int $x, int $y, int $z, int $data){
-		unset($this->blockCache[Level::blockHash($x, $y, $z)]);
+		unset($this->blockCache[$blockHash = Level::blockHash($x, $y, $z)]);
 		$this->getChunk($x >> 4, $z >> 4, true)->setBlockData($x & 0x0f, $y, $z & 0x0f, $data & 0x0f);
 
 		if(!isset($this->changedBlocks[$index = Level::chunkHash($x >> 4, $z >> 4)])){
 			$this->changedBlocks[$index] = [];
 		}
-		$this->changedBlocks[$index][Level::blockHash($x, $y, $z)] = $v = new Vector3($x, $y, $z);
+		$this->changedBlocks[$index][$blockHash] = $v = new Vector3($x, $y, $z);
 		foreach($this->getChunkLoaders($x >> 4, $z >> 4) as $loader){
 			$loader->onBlockChanged($v);
 		}
@@ -2757,7 +2864,7 @@ class Level implements ChunkManager, Metadatable{
 			$spawn = $this->getSpawnLocation();
 		}
 		if($spawn instanceof Vector3){
-			$max = $this->provider->getWorldHeight();
+			$max = $this->worldHeight;
 			$v = $spawn->floor();
 			$chunk = $this->getChunk($v->x >> 4, $v->z >> 4, false);
 			$x = (int) $v->x;
@@ -2810,7 +2917,7 @@ class Level implements ChunkManager, Metadatable{
 	 * @return string
 	 */
 	public function getName() : string{
-		return $this->provider->getName();
+		return $this->displayName;
 	}
 
 	/**
@@ -2867,7 +2974,7 @@ class Level implements ChunkManager, Metadatable{
 	}
 
 	public function getWorldHeight() : int{
-		return $this->provider->getWorldHeight();
+		return $this->worldHeight;
 	}
 
 	/**
